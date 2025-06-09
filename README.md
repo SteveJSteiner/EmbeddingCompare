@@ -75,8 +75,3 @@ data/
 3. Calculate cosine similarities between facts and text chunks
 4. Evaluate retrieval accuracy using Precision@K
 5. Analyze similarity score distributions
-
-## License
-
-Jane Eyre text is public domain. Code for research/educational use.
-
