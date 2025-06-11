@@ -10,6 +10,8 @@ import numpy as np
 from pathlib import Path
 from typing import List, Dict, Tuple
 import time
+import argparse
+import sys
 from sentence_transformers import SentenceTransformer
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
@@ -20,11 +22,18 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 class EmbeddingComparison:
-    def __init__(self, base_path: str = "./data"):
+    def __init__(self, base_path: str = "./data", output_dir: str = None):
         logger.info("Initializing EmbeddingComparison - FRAGILE MODE")
         self.base_path = Path(base_path)
         self.source_path = self.base_path / "source"
         self.facts_path = self.base_path / "facts" / "all_chapters_combined_mistral.json"
+        
+        # Output directory configuration
+        if output_dir:
+            self.output_dir = Path(output_dir)
+            self.output_dir.mkdir(exist_ok=True)
+        else:
+            self.output_dir = Path(".")
         
         # NO FALLBACKS - Paths must exist exactly
         self._verify_paths_strict()
@@ -296,9 +305,9 @@ class EmbeddingComparison:
         logger.info("✓ Complete evaluation finished")
         return final_results
         
-    def save_results(self, results: Dict, filename: str = "embedding_comparison_results.json"):
+    def save_results(self, results: Dict, filename: str = "experiment_output.json"):
         """Save results to file with numpy type conversion"""
-        filepath = Path(filename)
+        filepath = self.output_dir / filename
         logger.info(f"Saving results to {filepath}")
         
         # Convert numpy types to Python native types for JSON serialization
@@ -369,15 +378,52 @@ class EmbeddingComparison:
         print("="*80)
 
 
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="Embedding Model Comparison Experiment",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python embedding_comparison_experiment.py
+  python embedding_comparison_experiment.py --output-dir bridge_test_results
+        """
+    )
+    
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory to save results (default: current directory)"
+    )
+    
+    parser.add_argument(
+        "--data-path",
+        type=str,
+        default="./data",
+        help="Path to data directory (default: ./data)"
+    )
+    
+    return parser.parse_args()
+
+
 def main():
-    """Main execution function"""
+    """Main execution function with CLI support"""
+    # Parse command line arguments
+    args = parse_arguments()
+    
     print("🚀 EMBEDDING COMPARISON EXPERIMENT - FRAGILE MODE")
     print("NO FALLBACKS | EXACT REQUIREMENTS | COMPREHENSIVE DIAGNOSTICS")
+    if args.output_dir:
+        print(f"OUTPUT DIR: {args.output_dir}")
     print("-" * 80)
     
     try:
-        # Initialize comparison
-        comparator = EmbeddingComparison()
+        # Initialize comparison with CLI parameters
+        comparator = EmbeddingComparison(
+            base_path=args.data_path,
+            output_dir=args.output_dir
+        )
         
         # Run complete evaluation
         results = comparator.run_complete_evaluation()
@@ -390,10 +436,17 @@ def main():
         
         print("\n✅ EXPERIMENT COMPLETED SUCCESSFULLY")
         
+        # Exit with success code for bridge test
+        sys.exit(0)
+        
     except Exception as e:
         logger.error(f"EXPERIMENT FAILED: {e}")
         print(f"\n❌ EXPERIMENT FAILED: {e}")
-        raise
+        
+        # TODO: ASSUMPTION - Bridge test expects proper exit codes
+        # CONTEXT: exception={type(e).__name__}, args.output_dir={args.output_dir}
+        # Exit with failure code for bridge test
+        sys.exit(1)
 
 
 if __name__ == "__main__":

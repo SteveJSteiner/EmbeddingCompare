@@ -90,6 +90,10 @@ models/
 *_results.json
 *.log
 
+# Bridge test results should be tracked
+!bridge_test_results/
+!bridge_test_results/*.json
+
 # IDE
 .vscode/
 .idea/
