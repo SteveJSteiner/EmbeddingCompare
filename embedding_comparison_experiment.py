@@ -17,6 +17,9 @@ import torch
 from sklearn.metrics.pairwise import cosine_similarity
 import logging
 
+# Import configuration system
+from comparison_config import ComparisonConfig
+
 # Configure diagnostic logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -379,51 +382,103 @@ class EmbeddingComparison:
 
 
 def parse_arguments():
-    """Parse command line arguments"""
+    """Parse command line arguments with configuration system support"""
     parser = argparse.ArgumentParser(
-        description="Embedding Model Comparison Experiment",
+        description="Embedding Model Comparison Experiment - Configuration-Driven",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python embedding_comparison_experiment.py
-  python embedding_comparison_experiment.py --output-dir bridge_test_results
+  # Standard usage with configuration file (RECOMMENDED)
+  python embedding_comparison_experiment.py --config comparison.json
+  python embedding_comparison_experiment.py --config comparison.json --output-dir results/
+  
+  # TEMPORARY: Legacy mode for bridge test validation ONLY (WILL BE REMOVED)
+  python embedding_comparison_experiment.py --legacy-mode
+  python embedding_comparison_experiment.py --legacy-mode --output-dir bridge_test_results
         """
     )
     
+    # Configuration system arguments
+    config_group = parser.add_mutually_exclusive_group(required=True)
+    config_group.add_argument(
+        "--config",
+        type=str,
+        help="Path to JSON configuration file (REQUIRED for normal operation)"
+    )
+    config_group.add_argument(
+        "--legacy-mode",
+        action="store_true",
+        help="TEMPORARY: Use legacy hardcoded configuration for bridge test validation ONLY (WILL BE REMOVED)"
+    )
+    
+    # Output configuration
     parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
-        help="Directory to save results (default: current directory)"
+        help="Directory to save results (overrides config file setting, default: current directory)"
     )
     
+    # Legacy data path argument (deprecated but maintained for bridge test compatibility)
     parser.add_argument(
         "--data-path",
         type=str,
-        default="./data",
-        help="Path to data directory (default: ./data)"
+        default=None,
+        help="Path to data directory (DEPRECATED: use config file data_config.base_path instead)"
     )
     
     return parser.parse_args()
 
 
 def main():
-    """Main execution function with CLI support"""
+    """Main execution function with configuration system support"""
     # Parse command line arguments
     args = parse_arguments()
     
-    print("🚀 EMBEDDING COMPARISON EXPERIMENT - FRAGILE MODE")
-    print("NO FALLBACKS | EXACT REQUIREMENTS | COMPREHENSIVE DIAGNOSTICS")
+    print("🚀 EMBEDDING COMPARISON EXPERIMENT - CONFIGURATION-DRIVEN")
+    print("STRICT VALIDATION | NO FALLBACKS | COMPREHENSIVE DIAGNOSTICS")
     if args.output_dir:
         print(f"OUTPUT DIR: {args.output_dir}")
     print("-" * 80)
     
     try:
-        # Initialize comparison with CLI parameters
+        # TODO: Initialize configuration system with strict validation
+        logger.info("Loading experiment configuration...")
+        if args.legacy_mode:
+            logger.warning("⚠️  LEGACY MODE ACTIVATED - FOR BRIDGE TEST VALIDATION ONLY")
+            config = ComparisonConfig(legacy_mode=True)
+        else:
+            logger.info(f"Loading configuration from: {args.config}")
+            config = ComparisonConfig(config_path=args.config)
+            
+        # TODO: ASSUMPTION - Configuration loaded successfully, proceeding with experiment
+        # CONTEXT: config_source={config.config_source}, legacy_mode={args.legacy_mode}
+        
+        # Determine data path with priority: CLI arg > config > legacy default
+        if args.data_path:
+            logger.warning("⚠️  --data-path argument is DEPRECATED, use config file data_config.base_path instead")
+            data_path = args.data_path
+        else:
+            data_config = config.get_data_config()
+            data_path = data_config["base_path"]
+            
+        logger.info(f"Using data path: {data_path}")
+        
+        # Initialize comparison with configuration
+        # NOTE: For now, still using legacy EmbeddingComparison class
+        # TODO: This will be updated in Milestone 2 to accept configuration directly
         comparator = EmbeddingComparison(
-            base_path=args.data_path,
+            base_path=data_path,
             output_dir=args.output_dir
         )
+        
+        # Log experiment information
+        exp_info = config.get_experiment_info()
+        logger.info(f"Experiment: {exp_info['name']} - {exp_info['description']}")
+        
+        model_a, model_b = config.get_model_specs()
+        logger.info(f"Model A: {model_a['display_name']} ({model_a['huggingface_id']})")
+        logger.info(f"Model B: {model_b['display_name']} ({model_b['huggingface_id']})")
         
         # Run complete evaluation
         results = comparator.run_complete_evaluation()
@@ -444,7 +499,7 @@ def main():
         print(f"\n❌ EXPERIMENT FAILED: {e}")
         
         # TODO: ASSUMPTION - Bridge test expects proper exit codes
-        # CONTEXT: exception={type(e).__name__}, args.output_dir={args.output_dir}
+        # CONTEXT: exception={type(e).__name__}, config_loaded={locals().get('config') is not None}
         # Exit with failure code for bridge test
         sys.exit(1)
 

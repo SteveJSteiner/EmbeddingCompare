@@ -8,7 +8,7 @@
       "text_chunks": 6,
       "facts": 819
     },
-    "execution_time": 24.092881441116333
+    "execution_time": 24.14775276184082
   },
   "retrieval_evaluation": {
     "minilm": [

@@ -34,10 +34,11 @@ class BridgeTest:
         """Execute experiment script via subprocess and capture results"""
         logger.info("Running experiment via subprocess")
         
-        # Build command
+        # Build command with legacy mode for backward compatibility
         cmd = [
             self.python_cmd,
             self.experiment_script,
+            "--legacy-mode",
             "--output-dir", str(self.results_dir)
         ]
         
