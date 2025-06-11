@@ -1,0 +1,43 @@
+{
+  "experiment_config": {
+    "name": "Milestone 3 Test - Dot Product Similarity",
+    "description": "Testing configurable similarity metric: dot product",
+    "version": "1.0"
+  },
+  "models": {
+    "model_a": {
+      "name": "minilm",
+      "huggingface_id": "all-MiniLM-L6-v2",
+      "display_name": "MiniLM-L6-v2",
+      "expected_dimensions": 384,
+      "trust_remote_code": false
+    },
+    "model_b": {
+      "name": "qwen",
+      "huggingface_id": "Qwen/Qwen3-Embedding-0.6B",
+      "display_name": "Qwen3-Embedding-0.6B",
+      "expected_dimensions": null,
+      "trust_remote_code": true
+    }
+  },
+  "data_config": {
+    "base_path": "./data",
+    "source_pattern": "JaneEyre-scene-*.txt",
+    "facts_file": "facts/all_chapters_combined_mistral.json",
+    "validation": {
+      "min_chunks": 1,
+      "min_facts": 1,
+      "require_chapter_mapping": true
+    }
+  },
+  "evaluation_config": {
+    "precision_k_values": [1, 3, 5],
+    "similarity_metric": "dot",
+    "include_diagnostics": true
+  },
+  "output_config": {
+    "results_file": "milestone3_dot_similarity_test.json",
+    "diagnostic_summary": true,
+    "save_embeddings": false
+  }
+}

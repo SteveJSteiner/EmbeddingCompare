@@ -14,7 +14,7 @@ import argparse
 import sys
 from sentence_transformers import SentenceTransformer
 import torch
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 import logging
 
 # Import configuration system
@@ -23,6 +23,60 @@ from comparison_config import ComparisonConfig
 # Configure diagnostic logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def compute_similarity(embedding1: np.ndarray, embedding2: np.ndarray, metric: str) -> float:
+    """Compute similarity between two embeddings using specified metric.
+    
+    Args:
+        embedding1: First embedding vector
+        embedding2: Second embedding vector  
+        metric: Similarity metric ("cosine", "dot", "euclidean")
+        
+    Returns:
+        Similarity score (higher = more similar for cosine/dot, lower = more similar for euclidean)
+        
+    Raises:
+        AssertionError: If metric is not supported or computation fails
+    """
+    logger.debug(f"Computing {metric} similarity between embeddings of shape {embedding1.shape} and {embedding2.shape}")
+    
+    # TODO: ASSUMPTION - Metric is one of the supported options
+    # CONTEXT: metric={metric}, supported_metrics=['cosine', 'dot', 'euclidean']
+    supported_metrics = ['cosine', 'dot', 'euclidean']
+    assert metric in supported_metrics, (
+        f"Unsupported similarity metric: '{metric}'. "
+        f"Supported metrics: {supported_metrics}. "
+        f"Please check evaluation_config.similarity_metric in configuration."
+    )
+    
+    try:
+        if metric == "cosine":
+            # Use sklearn cosine_similarity (returns 1.0 for identical vectors, 0.0 for orthogonal)
+            similarity = cosine_similarity([embedding1], [embedding2])[0][0]
+            logger.debug(f"Cosine similarity computed: {similarity:.6f}")
+            return float(similarity)
+            
+        elif metric == "dot":
+            # Dot product similarity (higher = more similar)  
+            similarity = np.dot(embedding1, embedding2)
+            logger.debug(f"Dot product similarity computed: {similarity:.6f}")
+            return float(similarity)
+            
+        elif metric == "euclidean":
+            # Euclidean distance (lower = more similar, so negate for consistent ordering)
+            distance = euclidean_distances([embedding1], [embedding2])[0][0] 
+            similarity = -float(distance)  # Negate so higher values = more similar
+            logger.debug(f"Euclidean distance computed: {distance:.6f}, similarity: {similarity:.6f}")
+            return similarity
+            
+    except Exception as e:
+        assert False, (
+            f"Failed to compute {metric} similarity. "
+            f"Error: {type(e).__name__}: {e}. "
+            f"Embedding1 shape: {embedding1.shape}, Embedding2 shape: {embedding2.shape}. "
+            f"Embedding1 stats: mean={np.mean(embedding1):.3f}, std={np.std(embedding1):.3f}. "
+            f"Embedding2 stats: mean={np.mean(embedding2):.3f}, std={np.std(embedding2):.3f}."
+        )
 
 class EmbeddingComparison:
     def __init__(self, config: ComparisonConfig, output_dir: str = None):
@@ -234,8 +288,13 @@ class EmbeddingComparison:
         logger.info("✓ All embeddings computed for all configured models")
         
     def evaluate_fact_retrieval(self) -> Dict:
-        """Evaluate fact-to-chapter retrieval accuracy with configured models"""
-        logger.info("Evaluating fact retrieval accuracy with configured models")
+        """Evaluate fact-to-chapter retrieval accuracy with configured models and similarity metric"""
+        logger.info("Evaluating fact retrieval accuracy with configured models and similarity metric")
+        
+        # Get evaluation configuration
+        eval_config = self.config.get_evaluation_config()
+        similarity_metric = eval_config["similarity_metric"]
+        logger.info(f"Using similarity metric: {similarity_metric}")
         
         results = {model_name: [] for model_name in self.model_names}
         
@@ -243,18 +302,18 @@ class EmbeddingComparison:
             fact_id = f"fact_{fact_idx}"
             target_chapter = fact['chapter']
             
-            logger.debug(f"Evaluating {fact_id} (target: chapter {target_chapter})")
+            logger.debug(f"Evaluating {fact_id} (target: chapter {target_chapter}) with {similarity_metric} similarity")
             
             # Process each configured model
             for model_name in self.model_names:
                 # Get fact embedding for this model
                 fact_emb = self.embeddings[model_name][fact_id]
                 
-                # Calculate similarities with text chunks
+                # Calculate similarities with text chunks using configured metric
                 similarities = {}
                 for chunk_id in self.text_chunks.keys():
                     chunk_emb = self.embeddings[model_name][chunk_id]
-                    sim = cosine_similarity([fact_emb], [chunk_emb])[0][0]
+                    sim = compute_similarity(fact_emb, chunk_emb, similarity_metric)
                     similarities[chunk_id] = sim
                     
                 # Get top match
@@ -267,12 +326,17 @@ class EmbeddingComparison:
                     "all_similarities": similarities
                 })
             
-        return results
-            
+        logger.info(f"✓ Fact retrieval evaluation complete for {len(self.model_names)} models using {similarity_metric} similarity")
         return results
         
-    def calculate_precision_at_k(self, retrieval_results: Dict, k_values: List[int] = [1, 3, 5]) -> Dict:
-        """Calculate Precision@K metrics with proper chapter-to-scene mapping for configured models"""
+    def calculate_precision_at_k(self, retrieval_results: Dict, k_values: List[int] = None) -> Dict:
+        """Calculate Precision@K metrics with configurable K values and proper chapter-to-scene mapping"""
+        
+        # Get K values from configuration if not provided
+        if k_values is None:
+            eval_config = self.config.get_evaluation_config()
+            k_values = eval_config["precision_k_values"]
+        
         logger.info(f"Calculating Precision@K for k={k_values} with configured models")
         
         precision_results = {}
@@ -314,19 +378,24 @@ class EmbeddingComparison:
         return precision_results
             
     def analyze_similarity_distributions(self) -> Dict:
-        """Analyze similarity score distributions for configured models"""
-        logger.info("Analyzing similarity distributions for configured models")
+        """Analyze similarity score distributions for configured models using configured similarity metric"""
+        logger.info("Analyzing similarity distributions for configured models with configured similarity metric")
+        
+        # Get evaluation configuration
+        eval_config = self.config.get_evaluation_config()
+        similarity_metric = eval_config["similarity_metric"]
+        logger.info(f"Using similarity metric: {similarity_metric}")
         
         all_similarities = {model_name: [] for model_name in self.model_names}
         
-        # Collect all similarity scores
+        # Collect all similarity scores using configured metric
         for model_name in self.model_names:
             for fact_id in [f"fact_{i}" for i in range(len(self.facts))]:
                 fact_emb = self.embeddings[model_name][fact_id]
                 
                 for chunk_id in self.text_chunks.keys():
                     chunk_emb = self.embeddings[model_name][chunk_id]
-                    sim = cosine_similarity([fact_emb], [chunk_emb])[0][0]
+                    sim = compute_similarity(fact_emb, chunk_emb, similarity_metric)
                     all_similarities[model_name].append(sim)
                     
         # Calculate statistics
@@ -340,11 +409,11 @@ class EmbeddingComparison:
                 "max": float(np.max(sims)),
                 "q25": float(np.percentile(sims, 25)),
                 "q50": float(np.percentile(sims, 50)),
-                "q75": float(np.percentile(sims, 75))
+                "q75": float(np.percentile(sims, 75)),
+                "similarity_metric": similarity_metric
             }
             
-        return stats
-            
+        logger.info(f"✓ Similarity distribution analysis complete using {similarity_metric} metric")
         return stats
         
     def run_complete_evaluation(self) -> Dict:
@@ -372,10 +441,14 @@ class EmbeddingComparison:
                 "huggingface_id": spec["huggingface_id"],
                 "display_name": spec["display_name"]
             }
-            
+        
+        # Include evaluation configuration in results
+        eval_config = self.config.get_evaluation_config()
+        
         final_results = {
             "experiment_info": {
                 "models": model_specs_for_results,
+                "evaluation_config": eval_config,
                 "data_stats": {
                     "text_chunks": len(self.text_chunks),
                     "facts": len(self.facts)
@@ -390,8 +463,15 @@ class EmbeddingComparison:
         logger.info("✓ Complete evaluation finished")
         return final_results
         
-    def save_results(self, results: Dict, filename: str = "experiment_output.json"):
-        """Save results to file with numpy type conversion"""
+    def save_results(self, results: Dict, filename: str = None):
+        """Save results to file with numpy type conversion using configured filename"""
+        
+        # Use configured filename if not provided
+        if filename is None:
+            output_config = self.config.config.get("output_config", {})
+            filename = output_config.get("results_file", "experiment_output.json")
+            logger.info(f"Using configured results filename: {filename}")
+        
         filepath = self.output_dir / filename
         logger.info(f"Saving results to {filepath}")
         

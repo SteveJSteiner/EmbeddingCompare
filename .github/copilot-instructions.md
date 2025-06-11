@@ -5,3 +5,6 @@ For experimental/comparison code:
 * Exit immediately on unexpected inputs + dump full context (params/state/location)
 * Add trace-level logging for each major step with intermediate values
 * Include stack traces AND semantic context ("Failed at model comparison step 2/5")
+
+For running code:
+* Use source .venv/bin/activate before running scripts

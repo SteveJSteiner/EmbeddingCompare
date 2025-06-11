@@ -375,13 +375,13 @@ python bridge_test.py --compare-baseline
   - [x] **Output**: `milestone2_completion_proof/experiment_output.json` with dynamic model names
 
 ### Milestone 3: Configurable Evaluation
-- [ ] **Deliverable**: `milestone3_configurable_evaluation_demo/`
-  - [ ] Generalize evaluation methods to work with any model pair (no hardcoded "minilm"/"qwen")
-  - [ ] Update result formatting to use configured model names dynamically
-  - [ ] Implement configurable precision@K values from config (test with [1,3,5,10])
-  - [ ] Add configurable similarity metrics (test with "cosine", "dot", "euclidean")
-  - [ ] **Validation**: Run with config using different precision@K and similarity metric
-  - [ ] **Output**: `milestone3_validation_results.json` showing configurable metrics working
+- [x] **Deliverable**: `milestone3_configurable_evaluation_demo/`
+  - [x] Generalize evaluation methods to work with any model pair (no hardcoded "minilm"/"qwen")
+  - [x] Update result formatting to use configured model names dynamically
+  - [x] Implement configurable precision@K values from config (test with [1,3,5,10])
+  - [x] Add configurable similarity metrics (test with "cosine", "dot", "euclidean")
+  - [x] **Validation**: Run with config using different precision@K and similarity metric
+  - [x] **Output**: `milestone3_validation_results.json` showing configurable metrics working
 
 ### Milestone 4: Enhanced CLI Interface  
 - [ ] **Deliverable**: `milestone4_enhanced_cli_demo/`
