@@ -25,13 +25,25 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 class EmbeddingComparison:
-    def __init__(self, base_path: str = "./data", output_dir: str = None):
-        logger.info("Initializing EmbeddingComparison - FRAGILE MODE")
-        self.base_path = Path(base_path)
-        self.source_path = self.base_path / "source"
-        self.facts_path = self.base_path / "facts" / "all_chapters_combined_mistral.json"
+    def __init__(self, config: ComparisonConfig, output_dir: str = None):
+        logger.info("Initializing EmbeddingComparison - CONFIGURATION-DRIVEN MODE")
         
-        # Output directory configuration
+        # TODO: ASSUMPTION - Configuration is valid and contains all required model specs
+        # CONTEXT: config_source={config.config_source}
+        assert config is not None, (
+            "Configuration is required for EmbeddingComparison. "
+            "Configuration must be loaded with ComparisonConfig before initialization."
+        )
+        
+        self.config = config
+        
+        # Get data configuration from config
+        data_config = config.get_data_config()
+        self.base_path = Path(data_config["base_path"])
+        self.source_path = self.base_path / "source" 
+        self.facts_path = self.base_path / data_config["facts_file"]
+        
+        # Output directory configuration  
         if output_dir:
             self.output_dir = Path(output_dir)
             self.output_dir.mkdir(exist_ok=True)
@@ -41,16 +53,23 @@ class EmbeddingComparison:
         # NO FALLBACKS - Paths must exist exactly
         self._verify_paths_strict()
         
-        # Model configuration - exact names required
-        self.model_names = {
-            "minilm": "all-MiniLM-L6-v2",
-            "qwen": "Qwen/Qwen3-Embedding-0.6B"
+        # Dynamic model configuration from config
+        model_a, model_b = config.get_model_specs()
+        self.model_specs = {
+            model_a["name"]: model_a,
+            model_b["name"]: model_b
         }
+        self.model_names = list(self.model_specs.keys())  # Dynamic model names
         
-        # Storage containers
+        logger.info(f"Dynamic model configuration loaded: {self.model_names}")
+        logger.debug(f"Model A: {model_a['display_name']} ({model_a['huggingface_id']})")
+        logger.debug(f"Model B: {model_b['display_name']} ({model_b['huggingface_id']})")
+        
+        # Storage containers - now dynamic based on config
         self.text_chunks = {}
         self.facts = []
-        self.embeddings = {"minilm": {}, "qwen": {}}
+        self.embeddings = {name: {} for name in self.model_names}
+        self.models = {}  # Will store loaded SentenceTransformer models
         self.results = {}
         
     def _verify_paths_strict(self):
@@ -69,26 +88,105 @@ class EmbeddingComparison:
         
         logger.info(f"Path verification complete: {len(scene_files)} scene files found")
                     
-    def load_models_strict(self):
-        """Load both models with strict requirements - NO FALLBACKS"""
-        logger.info("Loading models in STRICT mode")
+    def load_models_from_config(self):
+        """Load models dynamically based on configuration with strict validation"""
+        logger.info("Loading models from configuration in STRICT mode")
         
-        # Load MiniLM - must succeed exactly
-        logger.debug("Loading all-MiniLM-L6-v2...")
-        self.minilm_model = SentenceTransformer(self.model_names["minilm"])
-        logger.info(f"✓ MiniLM loaded: {self.minilm_model}")
+        for model_name, model_spec in self.model_specs.items():
+            logger.debug(f"Loading model: {model_name} ({model_spec['huggingface_id']})")
+            
+            # TODO: ASSUMPTION - HuggingFace model ID exists and is accessible
+            # CONTEXT: model_name={model_name}, huggingface_id={model_spec['huggingface_id']}
+            try:
+                # Load with trust_remote_code setting from configuration
+                trust_code = model_spec.get("trust_remote_code", False)
+                logger.debug(f"Loading {model_spec['huggingface_id']} with trust_remote_code={trust_code}")
+                
+                model = SentenceTransformer(
+                    model_spec["huggingface_id"],
+                    trust_remote_code=trust_code
+                )
+                
+                self.models[model_name] = model
+                logger.info(f"✓ {model_spec['display_name']} loaded successfully")
+                
+                # Validate embedding dimensions if specified
+                if model_spec.get("expected_dimensions") is not None:
+                    self._validate_embedding_dimensions(model_name, model_spec)
+                    
+            except Exception as e:
+                assert False, (
+                    f"Failed to load model '{model_name}' ({model_spec['huggingface_id']}). "
+                    f"Error: {type(e).__name__}: {e}. "
+                    f"Model spec: {model_spec}. "
+                    f"Please verify the model ID exists on HuggingFace and is accessible."
+                )
         
-        # Load Qwen using SentenceTransformer - must succeed exactly  
-        logger.debug("Loading Qwen/Qwen3-Embedding-0.6B...")
-        self.qwen_model = SentenceTransformer(self.model_names["qwen"])
-        logger.info(f"✓ Qwen loaded: {self.qwen_model}")
+        logger.info(f"✓ All models loaded successfully: {list(self.models.keys())}")
         
+    def _validate_embedding_dimensions(self, model_name: str, model_spec: Dict):
+        """Validate that model produces expected embedding dimensions"""
+        expected_dims = model_spec["expected_dimensions"]
+        logger.debug(f"Validating embedding dimensions for {model_name} (expected: {expected_dims})")
+        
+        # Test with a simple sentence
+        test_text = "This is a test sentence for dimension validation."
+        test_embedding = self.models[model_name].encode([test_text])[0]
+        actual_dims = test_embedding.shape[0]
+        
+        # TODO: ASSUMPTION - Model produces embeddings with expected dimensions
+        # CONTEXT: model_name={model_name}, expected_dims={expected_dims}, actual_dims={actual_dims}
+        assert actual_dims == expected_dims, (
+            f"Model '{model_name}' dimension mismatch. "
+            f"Expected: {expected_dims}, Got: {actual_dims}. "
+            f"Model: {model_spec['huggingface_id']}. "
+            f"Test embedding shape: {test_embedding.shape}. "
+            f"Please verify the expected_dimensions in configuration."
+        )
+        
+        logger.info(f"✓ {model_name} embedding dimensions validated: {actual_dims}")
+    
+    def get_model_embedding(self, model_name: str, text: str) -> np.ndarray:
+        """Get embedding from specified model with validation"""
+        logger.debug(f"Computing {model_name} embedding for text length: {len(text)}")
+        
+        # TODO: ASSUMPTION - Model name exists in loaded models
+        # CONTEXT: model_name={model_name}, available_models={list(self.models.keys())}
+        assert model_name in self.models, (
+            f"Model '{model_name}' not found in loaded models. "
+            f"Available models: {list(self.models.keys())}. "
+            f"Please ensure model is loaded before computing embeddings."
+        )
+        
+        try:
+            embedding = self.models[model_name].encode([text])[0]
+            logger.debug(f"{model_name} embedding shape: {embedding.shape}")
+            return embedding
+        except Exception as e:
+            assert False, (
+                f"Failed to compute embedding with model '{model_name}'. "
+                f"Error: {type(e).__name__}: {e}. "
+                f"Text length: {len(text)}. "
+                f"Model spec: {self.model_specs[model_name]}. "
+                f"Please verify model compatibility and text format."
+            )
+    
     def load_data_strict(self):
-        """Load Jane Eyre data with strict validation"""
-        logger.info("Loading Jane Eyre data in STRICT mode")
+        """Load data with strict validation using configuration"""
+        logger.info("Loading data in STRICT mode from configuration")
         
-        # Load scene files
-        scene_files = sorted(self.source_path.glob("JaneEyre-scene-*.txt"))
+        # Get data configuration
+        data_config = self.config.get_data_config()
+        source_pattern = data_config["source_pattern"]
+        
+        # Load scene files using configured pattern
+        scene_files = sorted(self.source_path.glob(source_pattern))
+        assert len(scene_files) > 0, (
+            f"No files found matching pattern '{source_pattern}' in {self.source_path}. "
+            f"Available files: {list(self.source_path.glob('*'))}. "
+            f"Please verify the source_pattern in configuration."
+        )
+        
         for scene_file in scene_files:
             scene_id = scene_file.stem
             logger.debug(f"Loading {scene_id}")
@@ -97,7 +195,7 @@ class EmbeddingComparison:
             assert len(content) > 0, f"Empty scene file: {scene_file}"
             self.text_chunks[scene_id] = content
             
-        logger.info(f"✓ Loaded {len(self.text_chunks)} scene chunks")
+        logger.info(f"✓ Loaded {len(self.text_chunks)} scene chunks using pattern '{source_pattern}'")
         
         # Load facts file
         logger.debug("Loading facts file")
@@ -115,45 +213,31 @@ class EmbeddingComparison:
         self.facts = facts_data
         logger.info(f"✓ Loaded {len(self.facts)} facts")
         
-    def get_minilm_embedding(self, text: str) -> np.ndarray:
-        """Get embedding from MiniLM model"""
-        logger.debug(f"Computing MiniLM embedding for text length: {len(text)}")
-        embedding = self.minilm_model.encode([text])[0]
-        logger.debug(f"MiniLM embedding shape: {embedding.shape}")
-        return embedding
-        
-    def get_qwen_embedding(self, text: str) -> np.ndarray:
-        """Get embedding from Qwen model"""
-        logger.debug(f"Computing Qwen embedding for text length: {len(text)}")
-        embedding = self.qwen_model.encode([text])[0]
-        logger.debug(f"Qwen embedding shape: {embedding.shape}")
-        return embedding
-        
     def compute_embeddings(self):
-        """Compute embeddings for all text chunks and facts"""
-        logger.info("Computing embeddings for all data")
+        """Compute embeddings for all text chunks and facts using configured models"""
+        logger.info("Computing embeddings for all data with configured models")
         
-        # Embed text chunks
+        # Embed text chunks with all models
         for chunk_id, text in self.text_chunks.items():
             logger.debug(f"Computing embeddings for {chunk_id}")
-            self.embeddings["minilm"][chunk_id] = self.get_minilm_embedding(text)
-            self.embeddings["qwen"][chunk_id] = self.get_qwen_embedding(text)
+            for model_name in self.model_names:
+                self.embeddings[model_name][chunk_id] = self.get_model_embedding(model_name, text)
             
-        # Embed facts
+        # Embed facts with all models
         for i, fact in enumerate(self.facts):
             fact_id = f"fact_{i}"
             logger.debug(f"Computing embeddings for {fact_id}")
             fact_text = fact['description']
-            self.embeddings["minilm"][fact_id] = self.get_minilm_embedding(fact_text)
-            self.embeddings["qwen"][fact_id] = self.get_qwen_embedding(fact_text)
+            for model_name in self.model_names:
+                self.embeddings[model_name][fact_id] = self.get_model_embedding(model_name, fact_text)
             
-        logger.info("✓ All embeddings computed")
+        logger.info("✓ All embeddings computed for all configured models")
         
     def evaluate_fact_retrieval(self) -> Dict:
-        """Evaluate fact-to-chapter retrieval accuracy"""
-        logger.info("Evaluating fact retrieval accuracy")
+        """Evaluate fact-to-chapter retrieval accuracy with configured models"""
+        logger.info("Evaluating fact retrieval accuracy with configured models")
         
-        results = {"minilm": [], "qwen": []}
+        results = {model_name: [] for model_name in self.model_names}
         
         for fact_idx, fact in enumerate(self.facts):
             fact_id = f"fact_{fact_idx}"
@@ -161,51 +245,39 @@ class EmbeddingComparison:
             
             logger.debug(f"Evaluating {fact_id} (target: chapter {target_chapter})")
             
-            # Get fact embedding for both models
-            fact_emb_minilm = self.embeddings["minilm"][fact_id]
-            fact_emb_qwen = self.embeddings["qwen"][fact_id]
-            
-            # Calculate similarities with text chunks
-            similarities_minilm = {}
-            similarities_qwen = {}
-            
-            for chunk_id in self.text_chunks.keys():
-                chunk_emb_minilm = self.embeddings["minilm"][chunk_id]
-                chunk_emb_qwen = self.embeddings["qwen"][chunk_id]
+            # Process each configured model
+            for model_name in self.model_names:
+                # Get fact embedding for this model
+                fact_emb = self.embeddings[model_name][fact_id]
                 
-                sim_minilm = cosine_similarity([fact_emb_minilm], [chunk_emb_minilm])[0][0]
-                sim_qwen = cosine_similarity([fact_emb_qwen], [chunk_emb_qwen])[0][0]
+                # Calculate similarities with text chunks
+                similarities = {}
+                for chunk_id in self.text_chunks.keys():
+                    chunk_emb = self.embeddings[model_name][chunk_id]
+                    sim = cosine_similarity([fact_emb], [chunk_emb])[0][0]
+                    similarities[chunk_id] = sim
+                    
+                # Get top match
+                top_match = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[0]
                 
-                similarities_minilm[chunk_id] = sim_minilm
-                similarities_qwen[chunk_id] = sim_qwen
-                
-            # Get top matches
-            top_minilm = sorted(similarities_minilm.items(), key=lambda x: x[1], reverse=True)
-            top_qwen = sorted(similarities_qwen.items(), key=lambda x: x[1], reverse=True)
+                results[model_name].append({
+                    "fact_id": fact_id,
+                    "target_chapter": target_chapter,
+                    "top_match": top_match,
+                    "all_similarities": similarities
+                })
             
-            results["minilm"].append({
-                "fact_id": fact_id,
-                "target_chapter": target_chapter,
-                "top_match": top_minilm[0],
-                "all_similarities": similarities_minilm
-            })
-            
-            results["qwen"].append({
-                "fact_id": fact_id,
-                "target_chapter": target_chapter,
-                "top_match": top_qwen[0],
-                "all_similarities": similarities_qwen
-            })
+        return results
             
         return results
         
     def calculate_precision_at_k(self, retrieval_results: Dict, k_values: List[int] = [1, 3, 5]) -> Dict:
-        """Calculate Precision@K metrics with proper chapter-to-scene mapping"""
-        logger.info(f"Calculating Precision@K for k={k_values}")
+        """Calculate Precision@K metrics with proper chapter-to-scene mapping for configured models"""
+        logger.info(f"Calculating Precision@K for k={k_values} with configured models")
         
         precision_results = {}
         
-        for model_name in ["minilm", "qwen"]:
+        for model_name in self.model_names:
             precision_results[model_name] = {}
             
             for k in k_values:
@@ -242,26 +314,26 @@ class EmbeddingComparison:
         return precision_results
             
     def analyze_similarity_distributions(self) -> Dict:
-        """Analyze similarity score distributions"""
-        logger.info("Analyzing similarity distributions")
+        """Analyze similarity score distributions for configured models"""
+        logger.info("Analyzing similarity distributions for configured models")
         
-        all_similarities = {"minilm": [], "qwen": []}
+        all_similarities = {model_name: [] for model_name in self.model_names}
         
         # Collect all similarity scores
-        for model in ["minilm", "qwen"]:
+        for model_name in self.model_names:
             for fact_id in [f"fact_{i}" for i in range(len(self.facts))]:
-                fact_emb = self.embeddings[model][fact_id]
+                fact_emb = self.embeddings[model_name][fact_id]
                 
                 for chunk_id in self.text_chunks.keys():
-                    chunk_emb = self.embeddings[model][chunk_id]
+                    chunk_emb = self.embeddings[model_name][chunk_id]
                     sim = cosine_similarity([fact_emb], [chunk_emb])[0][0]
-                    all_similarities[model].append(sim)
+                    all_similarities[model_name].append(sim)
                     
         # Calculate statistics
         stats = {}
-        for model in ["minilm", "qwen"]:
-            sims = np.array(all_similarities[model])
-            stats[model] = {
+        for model_name in self.model_names:
+            sims = np.array(all_similarities[model_name])
+            stats[model_name] = {
                 "mean": float(np.mean(sims)),
                 "std": float(np.std(sims)),
                 "min": float(np.min(sims)),
@@ -272,6 +344,8 @@ class EmbeddingComparison:
             }
             
         return stats
+            
+        return stats
         
     def run_complete_evaluation(self) -> Dict:
         """Run the complete evaluation pipeline"""
@@ -279,7 +353,7 @@ class EmbeddingComparison:
         start_time = time.time()
         
         # Load models and data
-        self.load_models_strict()
+        self.load_models_from_config()
         self.load_data_strict()
         
         # Compute embeddings
@@ -290,10 +364,18 @@ class EmbeddingComparison:
         precision_results = self.calculate_precision_at_k(retrieval_results)
         similarity_stats = self.analyze_similarity_distributions()
         
-        # Compile final results
+        # Compile final results with model specifications from config
+        model_specs_for_results = {}
+        for model_name in self.model_names:
+            spec = self.model_specs[model_name]
+            model_specs_for_results[model_name] = {
+                "huggingface_id": spec["huggingface_id"],
+                "display_name": spec["display_name"]
+            }
+            
         final_results = {
             "experiment_info": {
-                "models": self.model_names,
+                "models": model_specs_for_results,
                 "data_stats": {
                     "text_chunks": len(self.text_chunks),
                     "facts": len(self.facts)
@@ -352,28 +434,28 @@ class EmbeddingComparison:
             return obj
         
     def print_diagnostic_summary(self, results: Dict):
-        """Print comprehensive diagnostic summary"""
+        """Print comprehensive diagnostic summary for configured models"""
         print("\n" + "="*80)
         print("EMBEDDING COMPARISON DIAGNOSTIC SUMMARY")
         print("="*80)
         
         info = results["experiment_info"]
         print(f"Models Compared:")
-        print(f"  • MiniLM: {info['models']['minilm']}")
-        print(f"  • Qwen: {info['models']['qwen']}")
+        for model_name, model_info in info['models'].items():
+            print(f"  • {model_name}: {model_info['display_name']} ({model_info['huggingface_id']})")
         print(f"Data: {info['data_stats']['text_chunks']} chunks, {info['data_stats']['facts']} facts")
         print(f"Execution Time: {info['execution_time']:.2f}s")
         
         print(f"\nPRECISION METRICS:")
-        for model in ["minilm", "qwen"]:
-            print(f"  {model.upper()}:")
-            for metric, value in results["precision_metrics"][model].items():
+        for model_name in self.model_names:
+            print(f"  {model_name.upper()}:")
+            for metric, value in results["precision_metrics"][model_name].items():
                 print(f"    {metric}: {value:.3f}")
                 
         print(f"\nSIMILARITY DISTRIBUTIONS:")
-        for model in ["minilm", "qwen"]:
-            stats = results["similarity_distributions"][model]
-            print(f"  {model.upper()}:")
+        for model_name in self.model_names:
+            stats = results["similarity_distributions"][model_name]
+            print(f"  {model_name.upper()}:")
             print(f"    Mean: {stats['mean']:.3f} ± {stats['std']:.3f}")
             print(f"    Range: [{stats['min']:.3f}, {stats['max']:.3f}]")
             print(f"    Q25/Q50/Q75: {stats['q25']:.3f}/{stats['q50']:.3f}/{stats['q75']:.3f}")
@@ -454,21 +536,15 @@ def main():
         # TODO: ASSUMPTION - Configuration loaded successfully, proceeding with experiment
         # CONTEXT: config_source={config.config_source}, legacy_mode={args.legacy_mode}
         
-        # Determine data path with priority: CLI arg > config > legacy default
+        # DEPRECATED: CLI data path override (use configuration instead)
         if args.data_path:
             logger.warning("⚠️  --data-path argument is DEPRECATED, use config file data_config.base_path instead")
-            data_path = args.data_path
-        else:
-            data_config = config.get_data_config()
-            data_path = data_config["base_path"]
+            logger.warning("⚠️  This argument will be ignored in favor of configuration")
             
-        logger.info(f"Using data path: {data_path}")
-        
-        # Initialize comparison with configuration
-        # NOTE: For now, still using legacy EmbeddingComparison class
-        # TODO: This will be updated in Milestone 2 to accept configuration directly
+        # Initialize comparison with configuration-driven approach
+        logger.info("Initializing configuration-driven EmbeddingComparison...")
         comparator = EmbeddingComparison(
-            base_path=data_path,
+            config=config,
             output_dir=args.output_dir
         )
         

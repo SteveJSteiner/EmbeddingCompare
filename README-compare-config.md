@@ -360,35 +360,48 @@ python bridge_test.py --compare-baseline
 ## Implementation Roadmap
 
 ### Milestone 1: Core Configuration System
-- [ ] Create `ComparisonConfig` class with validation
-- [ ] Implement JSON schema validation  
-- [ ] Add CLI argument parsing for config file (required)
-- [ ] Add temporary `--legacy-mode` flag for bridge test validation ONLY
+- [x] Create `ComparisonConfig` class with validation
+- [x] Implement JSON schema validation  
+- [x] Add CLI argument parsing for config file (required)
+- [x] Add temporary `--legacy-mode` flag for bridge test validation ONLY
 
 ### Milestone 2: Dynamic Model Loading
-- [ ] Refactor `EmbeddingComparison` to require configuration
-- [ ] Implement generic model loading from config
-- [ ] Update embedding computation to be model-agnostic
-- [ ] Validate embedding dimensions and compatibility
+- [x] **Deliverable**: `milestone2_completion_proof/`
+  - [x] Refactor `EmbeddingComparison` to require configuration
+  - [x] Implement generic model loading from config
+  - [x] Update embedding computation to be model-agnostic
+  - [x] Validate embedding dimensions and compatibility
+  - [x] **Validation**: Successfully ran config-driven experiment
+  - [x] **Output**: `milestone2_completion_proof/experiment_output.json` with dynamic model names
 
 ### Milestone 3: Configurable Evaluation
-- [ ] Generalize evaluation methods to work with any model pair
-- [ ] Update result formatting to use configured model names
-- [ ] Implement configurable precision@K values
-- [ ] Add configurable similarity metrics
+- [ ] **Deliverable**: `milestone3_configurable_evaluation_demo/`
+  - [ ] Generalize evaluation methods to work with any model pair (no hardcoded "minilm"/"qwen")
+  - [ ] Update result formatting to use configured model names dynamically
+  - [ ] Implement configurable precision@K values from config (test with [1,3,5,10])
+  - [ ] Add configurable similarity metrics (test with "cosine", "dot", "euclidean")
+  - [ ] **Validation**: Run with config using different precision@K and similarity metric
+  - [ ] **Output**: `milestone3_validation_results.json` showing configurable metrics working
 
-### Milestone 4: Enhanced CLI Interface
-- [ ] Add `--model-a` and `--model-b` quick comparison flags (auto-generate config)
-- [ ] Implement `--output-dir` override
-- [ ] Add configuration validation command
-- [ ] Create configuration file templates
+### Milestone 4: Enhanced CLI Interface  
+- [ ] **Deliverable**: `milestone4_enhanced_cli_demo/`
+  - [ ] Add `--model-a` and `--model-b` quick comparison flags (auto-generate config)
+  - [ ] Implement `--output-dir` override (already working, document it)
+  - [ ] Add `--validate-config` command for configuration validation
+  - [ ] Create configuration file templates with `--generate-template` command
+  - [ ] **Validation**: Test all new CLI features with different model combinations
+  - [ ] **Output**: `milestone4_cli_demo_results/` with subdirs for each CLI feature test
 
 ### Milestone 5: Validation & Legacy Removal
-- [ ] Comprehensive configuration validation tests
-- [ ] Bridge test verification with legacy mode
-- [ ] Verify equivalent configuration produces identical results
-- [ ] **REMOVE legacy mode** after bridge test validation passes
-- [ ] Update documentation to show configuration-only usage
+- [ ] **Deliverable**: `milestone5_legacy_removal_proof/`
+  - [ ] Comprehensive configuration validation tests (test invalid configs fail properly)
+  - [ ] Bridge test verification with legacy mode (if legacy mode exists)
+  - [ ] Verify equivalent configuration produces identical results to legacy
+  - [ ] **REMOVE legacy mode** after bridge test validation passes
+  - [ ] Update documentation to show configuration-only usage
+  - [ ] **Validation**: System works entirely through configuration with no legacy fallbacks
+  - [ ] **Output**: `milestone5_validation_report.json` showing all validation tests passed
+  - [ ] **Output**: `milestone5_config_only_demo/` proving system works without any legacy code
 
 ## Benefits of This Design
 
