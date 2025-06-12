@@ -1,0 +1,43 @@
+{
+  "experiment_config": {
+    "name": "Instructor Scale Comparison: Large vs XL",
+    "description": "Comparative evaluation of hkunlp/instructor-large vs hkunlp/instructor-xl to analyze the impact of model scale within the Instructor architecture family",
+    "version": "1.0"
+  },
+  "models": {
+    "model_a": {
+      "name": "instructor_large",
+      "huggingface_id": "hkunlp/instructor-large",
+      "display_name": "Instructor-Large",
+      "expected_dimensions": 768,
+      "trust_remote_code": false
+    },
+    "model_b": {
+      "name": "instructor_xl",
+      "huggingface_id": "hkunlp/instructor-xl",
+      "display_name": "Instructor-XL",
+      "expected_dimensions": 768,
+      "trust_remote_code": false
+    }
+  },
+  "data_config": {
+    "base_path": "./data",
+    "source_pattern": "JaneEyre-scene-*.txt",
+    "facts_file": "facts/all_chapters_combined_mistral.json",
+    "validation": {
+      "min_chunks": 1,
+      "min_facts": 1,
+      "require_chapter_mapping": true
+    }
+  },
+  "evaluation_config": {
+    "precision_k_values": [1, 3, 5, 10],
+    "similarity_metric": "cosine",
+    "include_diagnostics": true
+  },
+  "output_config": {
+    "results_file": "instructor_large_vs_xl_comparison.json",
+    "diagnostic_summary": true,
+    "save_embeddings": false
+  }
+}
